@@ -1,0 +1,19 @@
+[package]
+name = "ffdl"
+version = "0.1.0"
+edition = "2024"
+authors = ["Yakkuru"]
+description = "A CLI tool to download files from fuckingfast.co"
+
+[[bin]]
+name = "ffdl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.98"
+argh = "0.1.13"
+regex = "1.11.1"
+reqwest = { version = "0.12.15", features = ["stream"] }
+indicatif = "0.17.7"
+tokio = { version = "1.36.0", features = ["full"] }
+futures-util = "0.3.31"
