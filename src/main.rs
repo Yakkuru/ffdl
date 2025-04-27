@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use argh::FromArgs;
 use regex::Regex;
 use std::io::{Read, Write};
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
+use tokio::sync::Semaphore;
+use std::sync::Arc;
 use futures_util::StreamExt;
 
 #[derive(FromArgs)]
@@ -15,29 +17,41 @@ struct Command {
     /// load urls to download from a text file
     #[argh(option, long = "file", short = 'f')]
     file: Option<String>,
+
+    /// number of concurrent downloads
+    #[argh(option, short = 'c', default = "4")]
+    concurrent: usize,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let command: Command = argh::from_env();
+    let semaphore = Arc::new(Semaphore::new(command.concurrent));
+    let multi_progress = MultiProgress::new();
 
     if let Some(url) = command.url {
-        println!("Fetching url: {}", url);
         let download_url = fetch_download_url(&url).await?;
-        println!("Download url: {}", download_url);
-
-        download_file(&download_url).await?;
+        download_file(&download_url, &multi_progress).await?;
     }
 
     if let Some(filename) = command.file {
         println!("Fetching urls from: {}", filename);
         let urls = get_file_urls(&filename).await?;
-        for url in urls {
-            println!("Found URL: {}", url);
-            let download_url = fetch_download_url(&url).await?;
-            println!("Download url: {}", download_url);
+        let mut handles = vec![];
 
-            download_file(&download_url).await?;
+        for url in urls {
+            let download_url = fetch_download_url(&url).await?;
+            let sem = semaphore.clone();
+            let multi_progress = multi_progress.clone();
+            let handle = tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                download_file(&download_url, &multi_progress).await
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.await??;
         }
     }
 
@@ -71,24 +85,23 @@ async fn fetch_download_url(url: &str) -> Result<String> {
     }
 }
 
-async fn download_file(url: &str) -> Result<()> {
+async fn download_file(url: &str, multi_progress: &MultiProgress) -> Result<()> {
     let response = reqwest::get(url).await.context("Failed to get response")?;
     let total_size = response.content_length().unwrap_or(0);
+    let headers = response.headers().clone();
     
-    let filename = response
-        .headers()
+    let filename = headers
         .get("content-disposition")
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.split("filename*=UTF-8''").nth(1))
         .map(|s| s.trim_matches('"'))
         .context("No filename in headers")?;
     
-    println!("Downloading file: {}", filename);
-    
-    let pb = ProgressBar::new(total_size);
+    let pb = multi_progress.add(ProgressBar::new(total_size));
     pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec})")
+        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}) - {msg}")
         .unwrap());
+    pb.set_message(filename.to_string());
     
     let mut file = std::fs::File::create(filename).context("Failed to create file")?;
     let mut downloaded = 0;
@@ -101,6 +114,6 @@ async fn download_file(url: &str) -> Result<()> {
         pb.set_position(downloaded);
     }
     
-    pb.finish();
+    pb.finish_with_message(format!("{} - Complete", filename));
     Ok(())
 }
