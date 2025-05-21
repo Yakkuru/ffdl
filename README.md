@@ -7,7 +7,7 @@ CLI tool to download files from fuckingfast.co
 install rust tools first
 https://www.rust-lang.org/tools/install
 
-then
+then clone the repo, go in folder and
 
 ```bash
 cargo install --path .
