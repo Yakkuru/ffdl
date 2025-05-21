@@ -31,11 +31,3 @@ ffdl -u "https://fuckingfast.co/abc123"
 # Multiple files
 ffdl -f downloads.txt
 ```
-
-## Building from source
-
-```bash
-git clone https://github.com/yourusername/ffdl
-cd ffdl
-cargo build --release
-```
