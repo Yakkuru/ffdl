@@ -1,4 +1,4 @@
-# FFDL
+# FFDL Fucking Fast CLI downloader
 
 CLI tool to download files from fuckingfast.co
 
